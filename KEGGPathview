@@ -1,0 +1,53 @@
+#!/KEGGPathview.R
+
+#The script takes as input gene expression (LFC) and displays them on a KEGG pathway plot
+#The script has three user's inputs:
+#1) LFC_filename -> the name of the file that contains the gene expression. 
+#The file needs to have a column called "EntrezID" where the gene's EntrezID is saved.
+#The following columns contains the gene expression from the different conditions (#Condition1 #Condition2 #ConditionX)
+#2) KEGG_filename -> the name of the file that contains the KEGG infos.  There should be at least a column called "ID" that has the KEGG pathway ID.
+#3) showColumns -> select the condition/s the user wants to show in the plot
+
+#Install and activate libraries
+#BiocManager::install("pathview")
+#install.packages("tidyverse")
+library(pathview)
+library(tidyverse)
+
+rm(list = ls()) #Remove all objects
+
+### USER INPUT ###
+LFC_filename <- "LFC_HGP_study.txt" #LFC file name in the working director (#EntrezID #Condition1 #Condition2 #ConditionX)
+KEGG_filename <- "KEGG_list.txt"    #KEGG text file name in the working director (#Description #ID)
+showColumns <- c("HGP", "UV")       #Select the columns/groups from the LFC_filename file to show on the Pathview plot 
+
+#Upload the two files
+LFC_file <- read.delim2 (LFC_filename, header = TRUE, sep = "\t", dec = ",")
+KEGG_file <- read.delim2 (KEGG_filename, header = TRUE, sep = "\t", dec = ",")
+
+#Remove the duplicates EntrezIDs in the LFC_file -> Average of the same gene's values
+LFC_file_num <- as.data.frame(sapply(LFC_file, as.numeric)) #Convert all the character into numeric columns
+
+LFC_unique <- LFC_file_num %>%              
+              filter(EntrezID != "NA") %>%        #Remove EntrezID == "NA"
+              group_by(EntrezID) %>%              #Group by the EntrezID
+              summarise_all("mean") %>%           #Get the mean of each EntrezID for each column
+              remove_rownames %>%                 #Remove the row names
+              column_to_rownames(var="EntrezID")  #Set the EntrezID column as the row names
+
+#Divide the "ID" column into two columns (e.i. "Organism" -> hsa and "KEGGID" -> 04110)
+KEGG_file_allInfo <- KEGG_file %>% separate(ID, into = c("Organism", "KEGGID"), sep = "(?<=[A-Za-z])(?=[0-9])")
+
+#Get KEGG pathway figures for each KEGG pathway in the list
+showColumns_index <- which(colnames(LFC_unique)  %in% showColumns) #Index of the selected columns to show in the plot
+
+#The plots will be directly saved in the working directory
+maxValue <- round (max(max(LFC_unique), abs (min(LFC_unique))), digits = 0) #Get the highest value in the expression table for both up/down-regulated
+
+for(i in 1:nrow(KEGG_file_allInfo)) 
+{
+  pathview (gene.data = LFC_unique[, showColumns_index], 
+            pathway.id = KEGG_file_allInfo$KEGGID[i], 
+            species = "hsa", out.suffix = "pathview", keys.align = "y",
+            kegg.native = TRUE, match.data = FALSE, multi.state = TRUE, same.layer = TRUE,  limit = list(gene = maxValue), bins = list(gene = maxValue*2))
+}
